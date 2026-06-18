@@ -491,7 +491,7 @@ export function SessionEditor({
               />
             </div>
           </div>
-          <div className="grid max-h-[55vh] gap-1.5 overflow-y-auto px-4 pb-8">
+          <div className="grid min-h-0 flex-1 gap-1.5 overflow-y-auto px-4 pb-8">
             {pickable.length === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 {search ? "No matches." : "All exercises are already added."}

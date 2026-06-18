@@ -49,7 +49,7 @@ export function StartWorkoutButton({
         <SheetHeader>
           <SheetTitle>Choose a workout</SheetTitle>
         </SheetHeader>
-        <div className="grid gap-2 overflow-y-auto px-4 pb-8">
+        <div className="grid min-h-0 flex-1 gap-2 overflow-y-auto px-4 pb-8">
           {days.length === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No workout days yet. Create one in the Workouts tab.
