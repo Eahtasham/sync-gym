@@ -290,6 +290,7 @@ export function ExerciseManager({
             />
             <Select
               value={type}
+              items={{ STRENGTH: "Strength", CARDIO: "Cardio" }}
               onValueChange={(v) => v && setType(v as ExerciseType)}
             >
               <SelectTrigger className="w-full">

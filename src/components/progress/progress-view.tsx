@@ -76,7 +76,11 @@ export function ProgressView({
         </Card>
       ) : (
         <>
-          <Select value={selectedId ?? undefined} onValueChange={switchExercise}>
+          <Select
+            value={selectedId ?? undefined}
+            items={Object.fromEntries(list.map((e) => [e.id, e.name]))}
+            onValueChange={switchExercise}
+          >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Select exercise" />
             </SelectTrigger>

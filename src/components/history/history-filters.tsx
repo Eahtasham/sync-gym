@@ -38,10 +38,19 @@ export function HistoryFilters({
 
   const hasFilters = dayId !== "all" || exerciseId !== "all" || from || to;
 
+  const dayItems: Record<string, string> = {
+    all: "All workouts",
+    ...Object.fromEntries(days.map((d) => [d.id, d.name])),
+  };
+  const exerciseItems: Record<string, string> = {
+    all: "All exercises",
+    ...Object.fromEntries(exercises.map((e) => [e.id, e.name])),
+  };
+
   return (
     <div className="mb-4 space-y-2">
       <div className="grid grid-cols-2 gap-2">
-        <Select value={dayId} onValueChange={(v) => setParam("dayId", v)}>
+        <Select value={dayId} items={dayItems} onValueChange={(v) => setParam("dayId", v)}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Workout" />
           </SelectTrigger>
@@ -55,7 +64,11 @@ export function HistoryFilters({
           </SelectContent>
         </Select>
 
-        <Select value={exerciseId} onValueChange={(v) => setParam("exerciseId", v)}>
+        <Select
+          value={exerciseId}
+          items={exerciseItems}
+          onValueChange={(v) => setParam("exerciseId", v)}
+        >
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Exercise" />
           </SelectTrigger>
