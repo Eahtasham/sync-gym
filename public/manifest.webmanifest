@@ -1,0 +1,10 @@
+{
+  "name": "Sync Gym",
+  "short_name": "Sync Gym",
+  "description": "Your personal gym workout tracker",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0c0e12",
+  "theme_color": "#0c0e12",
+  "orientation": "portrait"
+}
