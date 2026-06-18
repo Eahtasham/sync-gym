@@ -1,9 +1,10 @@
 "use client";
 
 import { useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Copy, Loader2, Trash2 } from "lucide-react";
+import { Copy, Loader2, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -24,18 +25,24 @@ export function SessionActions({ sessionId }: { sessionId: string }) {
   const [del, startDel] = useTransition();
 
   return (
-    <div className="flex gap-2">
-      <Button
-        variant="secondary"
-        className="flex-1 gap-2"
-        disabled={dup}
-        onClick={() => startDup(() => duplicateSession(sessionId))}
-      >
-        {dup ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />}
-        Repeat workout
+    <div className="flex flex-col gap-2">
+      <Button render={<Link href={`/session/${sessionId}`} />} className="w-full gap-2">
+        <Pencil className="size-4" />
+        Edit session
       </Button>
 
-      <AlertDialog>
+      <div className="flex gap-2">
+        <Button
+          variant="secondary"
+          className="flex-1 gap-2"
+          disabled={dup}
+          onClick={() => startDup(() => duplicateSession(sessionId))}
+        >
+          {dup ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />}
+          Repeat workout
+        </Button>
+
+        <AlertDialog>
         <AlertDialogTrigger
           render={
             <Button variant="outline" size="icon" aria-label="Delete session">
@@ -65,8 +72,9 @@ export function SessionActions({ sessionId }: { sessionId: string }) {
               {del ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
     </div>
   );
 }
