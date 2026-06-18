@@ -1,0 +1,105 @@
+// Gym Workout Tracker — Prisma schema (SQLite via libSQL/Turso driver adapter)
+// Templates (WorkoutDay, Exercise) are permanent; logs expire after 30 days.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A reusable workout template, e.g. "Chest Day", "Leg Day".
+model WorkoutDay {
+  id           String           @id @default(cuid())
+  name         String
+  displayOrder Int              @default(0)
+  createdAt    DateTime         @default(now())
+  exercises    Exercise[]
+  sessions     WorkoutSession[]
+
+  @@index([displayOrder])
+}
+
+/// An exercise belonging to a workout day. Strength or cardio.
+model Exercise {
+  id           String        @id @default(cuid())
+  workoutDayId String
+  workoutDay   WorkoutDay    @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+  name         String
+  type         String        @default("STRENGTH") // "STRENGTH" | "CARDIO"
+  displayOrder Int           @default(0)
+  isFavorite   Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  logs         ExerciseLog[]
+  cardioLogs   CardioLog[]
+
+  @@index([workoutDayId, displayOrder])
+}
+
+/// A single performed workout. `createdAt` drives the 30-day expiry.
+model WorkoutSession {
+  id           String        @id @default(cuid())
+  workoutDayId String
+  workoutDay   WorkoutDay    @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+  sessionDate  DateTime      @default(now())
+  notes        String?
+  createdAt    DateTime      @default(now())
+  exerciseLogs ExerciseLog[]
+  cardioLogs   CardioLog[]
+
+  @@index([workoutDayId, sessionDate])
+  @@index([createdAt])
+}
+
+/// One exercise performed within a session (groups its sets).
+model ExerciseLog {
+  id               String         @id @default(cuid())
+  workoutSessionId String
+  workoutSession   WorkoutSession @relation(fields: [workoutSessionId], references: [id], onDelete: Cascade)
+  exerciseId       String
+  exercise         Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  notes            String?
+  sets             ExerciseSet[]
+
+  @@index([workoutSessionId])
+  @@index([exerciseId])
+}
+
+/// A single set: weight (kg) x reps.
+model ExerciseSet {
+  id            String      @id @default(cuid())
+  exerciseLogId String
+  exerciseLog   ExerciseLog @relation(fields: [exerciseLogId], references: [id], onDelete: Cascade)
+  setNumber     Int
+  weight        Float       @default(0)
+  reps          Int         @default(0)
+
+  @@index([exerciseLogId])
+}
+
+/// A cardio entry within a session.
+model CardioLog {
+  id               String         @id @default(cuid())
+  workoutSessionId String
+  workoutSession   WorkoutSession @relation(fields: [workoutSessionId], references: [id], onDelete: Cascade)
+  exerciseId       String?
+  exercise         Exercise?      @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  durationMinutes  Float
+  distanceKm       Float?
+  calories         Int?
+  avgSpeedKmh      Float?
+  notes            String?
+
+  @@index([workoutSessionId])
+  @@index([exerciseId])
+}
+
+/// Singleton app settings row (id = "singleton"). Holds the PIN hash.
+model Setting {
+  id        String   @id @default("singleton")
+  pinHash   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
