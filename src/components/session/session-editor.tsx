@@ -1,20 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { Check, Copy, Loader2, Plus, StickyNote, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Check,
+  Copy,
+  Dumbbell,
+  HeartPulse,
+  Loader2,
+  Plus,
+  Search,
+  StickyNote,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { avgSpeed, friendlyDate, setsSummary } from "@/lib/format";
 import {
+  addExercisesToSession,
   finishSession,
+  removeCardioLog,
+  removeExerciseLog,
   saveSession,
   type SaveSessionPayload,
 } from "@/lib/actions/sessions";
 import type { SessionForEdit } from "@/lib/queries/session";
+
+type LibraryExercise = { id: string; name: string; type: string };
 
 type SetRow = { weight: string; reps: string };
 type StrengthState = {
@@ -41,7 +65,14 @@ const num = (s: string) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export function SessionEditor({ session }: { session: SessionForEdit }) {
+export function SessionEditor({
+  session,
+  library,
+}: {
+  session: SessionForEdit;
+  library: LibraryExercise[];
+}) {
+  const router = useRouter();
   const [strength, setStrength] = useState<StrengthState[]>(
     session.strength.map((e) => ({
       logId: e.logId,
@@ -118,6 +149,45 @@ export function SessionEditor({ session }: { session: SessionForEdit }) {
     startFinish(() => finishSession(session.id, buildPayload()));
   }
 
+  // ---- add / remove exercises mid-session ----
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [busy, startBusy] = useTransition();
+
+  const presentNames = useMemo(
+    () =>
+      new Set([
+        ...session.strength.map((s) => s.name),
+        ...session.cardio.map((c) => c.name),
+      ]),
+    [session],
+  );
+
+  const pickable = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return library.filter(
+      (e) =>
+        !presentNames.has(e.name) &&
+        (!q || e.name.toLowerCase().includes(q)),
+    );
+  }, [library, presentNames, search]);
+
+  /** Save current edits, run a mutation, then refresh (editor remounts via key). */
+  function persistThen(fn: () => Promise<unknown>) {
+    if (timer.current) clearTimeout(timer.current);
+    startBusy(async () => {
+      await saveSession(session.id, buildPayload());
+      await fn();
+      router.refresh();
+    });
+  }
+
+  function addExercise(id: string) {
+    setPickerOpen(false);
+    setSearch("");
+    persistThen(() => addExercisesToSession(session.id, [id]));
+  }
+
   // ---- strength mutations ----
   const updateSet = (li: number, si: number, field: keyof SetRow, val: string) =>
     setStrength((st) =>
@@ -192,17 +262,28 @@ export function SessionEditor({ session }: { session: SessionForEdit }) {
                 {e.previous ? setsSummary(e.previous.sets) : "—"}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => toggleStrengthNotes(li)}
-              className={cn(
-                "rounded-md p-1.5 text-muted-foreground hover:bg-accent",
-                e.showNotes && "text-primary",
-              )}
-              aria-label="Toggle notes"
-            >
-              <StickyNote className="size-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => toggleStrengthNotes(li)}
+                className={cn(
+                  "rounded-md p-1.5 text-muted-foreground hover:bg-accent",
+                  e.showNotes && "text-primary",
+                )}
+                aria-label="Toggle notes"
+              >
+                <StickyNote className="size-4" />
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => persistThen(() => removeExerciseLog(e.logId))}
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent disabled:opacity-40"
+                aria-label="Remove exercise"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </div>
           </div>
 
           {/* column labels */}
@@ -300,17 +381,28 @@ export function SessionEditor({ session }: { session: SessionForEdit }) {
                     : "—"}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => toggleCardioNotes(ci)}
-                className={cn(
-                  "rounded-md p-1.5 text-muted-foreground hover:bg-accent",
-                  c.showNotes && "text-primary",
-                )}
-                aria-label="Toggle notes"
-              >
-                <StickyNote className="size-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleCardioNotes(ci)}
+                  className={cn(
+                    "rounded-md p-1.5 text-muted-foreground hover:bg-accent",
+                    c.showNotes && "text-primary",
+                  )}
+                  aria-label="Toggle notes"
+                >
+                  <StickyNote className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => persistThen(() => removeCardioLog(c.logId))}
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent disabled:opacity-40"
+                  aria-label="Remove exercise"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -373,9 +465,70 @@ export function SessionEditor({ session }: { session: SessionForEdit }) {
         );
       })}
 
+      {/* Add exercise (mix in any body part or cardio for today) */}
+      <Sheet open={pickerOpen} onOpenChange={setPickerOpen}>
+        <SheetTrigger
+          render={
+            <Button variant="secondary" className="w-full gap-2" disabled={busy}>
+              {busy ? <Loader2 className="size-5 animate-spin" /> : <Plus className="size-5" />}
+              Add exercise
+            </Button>
+          }
+        />
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader>
+            <SheetTitle>Add an exercise</SheetTitle>
+          </SheetHeader>
+          <div className="px-4 pb-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search exercises"
+                className="pl-9"
+                inputMode="search"
+              />
+            </div>
+          </div>
+          <div className="grid max-h-[55vh] gap-1.5 overflow-y-auto px-4 pb-8">
+            {pickable.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {search ? "No matches." : "All exercises are already added."}
+              </p>
+            )}
+            {pickable.map((ex) => (
+              <button
+                key={ex.id}
+                type="button"
+                onClick={() => addExercise(ex.id)}
+                className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 text-left active:scale-[0.99] transition-transform"
+              >
+                <span
+                  className={cn(
+                    "flex size-9 shrink-0 items-center justify-center rounded-lg",
+                    ex.type === "CARDIO"
+                      ? "bg-chart-2/15 text-chart-2"
+                      : "bg-primary/15 text-primary",
+                  )}
+                >
+                  {ex.type === "CARDIO" ? (
+                    <HeartPulse className="size-5" />
+                  ) : (
+                    <Dumbbell className="size-5" />
+                  )}
+                </span>
+                <span className="flex-1 font-medium">{ex.name}</span>
+                <Plus className="size-5 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {strength.length === 0 && cardio.length === 0 && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
-          This workout day has no exercises. Add some from the Workouts tab.
+          No exercises yet. Tap “Add exercise” to build today’s workout.
         </Card>
       )}
 

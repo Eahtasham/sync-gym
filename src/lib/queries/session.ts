@@ -40,13 +40,21 @@ export type SessionForEdit = {
   cardio: SessionCardioEntry[];
 };
 
-/** Most recent strength sets for an exercise, excluding the current session. */
+/**
+ * Most recent strength sets for an exercise *by name* (across any workout day),
+ * excluding the current session. Matching by name means a "Back Day" started
+ * today shows your last numbers even if you logged that lift under another day.
+ */
 async function previousStrength(
-  exerciseId: string,
+  exerciseName: string,
   excludeSessionId: string,
 ): Promise<PreviousStrength> {
   const prev = await db.exerciseLog.findFirst({
-    where: { exerciseId, workoutSessionId: { not: excludeSessionId } },
+    where: {
+      exercise: { name: exerciseName },
+      workoutSessionId: { not: excludeSessionId },
+      sets: { some: {} },
+    },
     orderBy: { workoutSession: { sessionDate: "desc" } },
     include: {
       sets: { orderBy: { setNumber: "asc" } },
@@ -61,12 +69,15 @@ async function previousStrength(
 }
 
 async function previousCardio(
-  exerciseId: string | null,
+  exerciseName: string | null,
   excludeSessionId: string,
 ): Promise<PreviousCardio> {
-  if (!exerciseId) return null;
+  if (!exerciseName) return null;
   const prev = await db.cardioLog.findFirst({
-    where: { exerciseId, workoutSessionId: { not: excludeSessionId } },
+    where: {
+      exercise: { name: exerciseName },
+      workoutSessionId: { not: excludeSessionId },
+    },
     orderBy: { workoutSession: { sessionDate: "desc" } },
     include: { workoutSession: { select: { sessionDate: true } } },
   });
@@ -107,7 +118,7 @@ export async function getSessionForEdit(
       name: log.exercise.name,
       notes: log.notes,
       sets: log.sets.map((s) => ({ weight: s.weight, reps: s.reps })),
-      previous: await previousStrength(log.exerciseId, session.id),
+      previous: await previousStrength(log.exercise.name, session.id),
     })),
   );
 
@@ -120,7 +131,7 @@ export async function getSessionForEdit(
       distanceKm: log.distanceKm,
       calories: log.calories,
       notes: log.notes,
-      previous: await previousCardio(log.exerciseId, session.id),
+      previous: await previousCardio(log.exercise?.name ?? null, session.id),
     })),
   );
 

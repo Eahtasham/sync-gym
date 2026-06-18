@@ -5,24 +5,104 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { avgSpeed } from "@/lib/format";
 
-/** Create a session for a workout day, prefilling each exercise from its last session. */
+/**
+ * Create a session for a workout day, prefilling each exercise from the last
+ * time it was done (matched by name, across any day). Batched into ~3 queries
+ * + one nested create to keep it fast on a remote (Turso) database.
+ */
 export async function startSession(workoutDayId: string) {
   const day = await db.workoutDay.findUniqueOrThrow({
     where: { id: workoutDayId },
     include: { exercises: { orderBy: { displayOrder: "asc" } } },
   });
 
-  const session = await db.workoutSession.create({ data: { workoutDayId } });
+  const strengthEx = day.exercises.filter((e) => e.type !== "CARDIO");
+  const cardioEx = day.exercises.filter((e) => e.type === "CARDIO");
 
-  for (const ex of day.exercises) {
+  const [prevStrength, prevCardio] = await Promise.all([
+    strengthEx.length
+      ? db.exerciseLog.findMany({
+          where: {
+            exercise: { name: { in: strengthEx.map((e) => e.name) } },
+            sets: { some: {} },
+          },
+          orderBy: { workoutSession: { sessionDate: "desc" } },
+          include: {
+            sets: { orderBy: { setNumber: "asc" } },
+            exercise: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([]),
+    cardioEx.length
+      ? db.cardioLog.findMany({
+          where: { exercise: { name: { in: cardioEx.map((e) => e.name) } } },
+          orderBy: { workoutSession: { sessionDate: "desc" } },
+          include: { exercise: { select: { name: true } } },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const latestStrength = new Map<string, (typeof prevStrength)[number]>();
+  for (const log of prevStrength) {
+    if (!latestStrength.has(log.exercise.name)) latestStrength.set(log.exercise.name, log);
+  }
+  const latestCardio = new Map<string, (typeof prevCardio)[number]>();
+  for (const log of prevCardio) {
+    const n = log.exercise?.name;
+    if (n && !latestCardio.has(n)) latestCardio.set(n, log);
+  }
+
+  const session = await db.workoutSession.create({
+    data: {
+      workoutDayId,
+      exerciseLogs: {
+        create: strengthEx.map((ex) => {
+          const prev = latestStrength.get(ex.name);
+          const sets =
+            prev && prev.sets.length > 0
+              ? prev.sets.map((s) => ({ setNumber: s.setNumber, weight: s.weight, reps: s.reps }))
+              : [{ setNumber: 1, weight: 0, reps: 0 }];
+          return { exerciseId: ex.id, sets: { create: sets } };
+        }),
+      },
+      cardioLogs: {
+        create: cardioEx.map((ex) => {
+          const prev = latestCardio.get(ex.name);
+          return {
+            exerciseId: ex.id,
+            durationMinutes: prev?.durationMinutes ?? 0,
+            distanceKm: prev?.distanceKm ?? null,
+            calories: prev?.calories ?? null,
+            avgSpeedKmh: prev?.avgSpeedKmh ?? null,
+          };
+        }),
+      },
+    },
+  });
+
+  redirect(`/session/${session.id}`);
+}
+
+/** Add extra exercises to an in-progress session (e.g. add biceps + cardio to back day). */
+export async function addExercisesToSession(sessionId: string, exerciseIds: string[]) {
+  const exercises = await db.exercise.findMany({
+    where: { id: { in: exerciseIds } },
+  });
+
+  for (const ex of exercises) {
     if (ex.type === "CARDIO") {
+      const exists = await db.cardioLog.findFirst({
+        where: { workoutSessionId: sessionId, exerciseId: ex.id },
+        select: { id: true },
+      });
+      if (exists) continue;
       const prev = await db.cardioLog.findFirst({
-        where: { exerciseId: ex.id },
+        where: { exercise: { name: ex.name }, workoutSessionId: { not: sessionId } },
         orderBy: { workoutSession: { sessionDate: "desc" } },
       });
       await db.cardioLog.create({
         data: {
-          workoutSessionId: session.id,
+          workoutSessionId: sessionId,
           exerciseId: ex.id,
           durationMinutes: prev?.durationMinutes ?? 0,
           distanceKm: prev?.distanceKm ?? null,
@@ -31,30 +111,41 @@ export async function startSession(workoutDayId: string) {
         },
       });
     } else {
+      const exists = await db.exerciseLog.findFirst({
+        where: { workoutSessionId: sessionId, exerciseId: ex.id },
+        select: { id: true },
+      });
+      if (exists) continue;
       const prev = await db.exerciseLog.findFirst({
-        where: { exerciseId: ex.id },
+        where: {
+          exercise: { name: ex.name },
+          workoutSessionId: { not: sessionId },
+          sets: { some: {} },
+        },
         orderBy: { workoutSession: { sessionDate: "desc" } },
         include: { sets: { orderBy: { setNumber: "asc" } } },
       });
       const sets =
         prev && prev.sets.length > 0
-          ? prev.sets.map((s) => ({
-              setNumber: s.setNumber,
-              weight: s.weight,
-              reps: s.reps,
-            }))
+          ? prev.sets.map((s) => ({ setNumber: s.setNumber, weight: s.weight, reps: s.reps }))
           : [{ setNumber: 1, weight: 0, reps: 0 }];
       await db.exerciseLog.create({
-        data: {
-          workoutSessionId: session.id,
-          exerciseId: ex.id,
-          sets: { create: sets },
-        },
+        data: { workoutSessionId: sessionId, exerciseId: ex.id, sets: { create: sets } },
       });
     }
   }
 
-  redirect(`/session/${session.id}`);
+  revalidatePath(`/session/${sessionId}`);
+}
+
+export async function removeExerciseLog(logId: string) {
+  const log = await db.exerciseLog.delete({ where: { id: logId } });
+  revalidatePath(`/session/${log.workoutSessionId}`);
+}
+
+export async function removeCardioLog(logId: string) {
+  const log = await db.cardioLog.delete({ where: { id: logId } });
+  revalidatePath(`/session/${log.workoutSessionId}`);
 }
 
 export type SaveSessionPayload = {

@@ -14,6 +14,20 @@ export async function getWorkoutDay(id: string) {
   });
 }
 
+/** All exercises (deduped by name) for the in-session "add exercise" picker. */
+export async function getAllExercises() {
+  const rows = await db.exercise.findMany({
+    orderBy: [{ type: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, type: true },
+  });
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    if (seen.has(r.name)) return false;
+    seen.add(r.name);
+    return true;
+  });
+}
+
 export type WorkoutDayWithCount = Awaited<
   ReturnType<typeof getWorkoutDays>
 >[number];
