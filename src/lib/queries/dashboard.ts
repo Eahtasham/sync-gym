@@ -24,7 +24,7 @@ export type DashboardData = {
 export async function getDashboardData(): Promise<DashboardData> {
   const now = new Date();
 
-  const [todayCount, last, monthCount, totalSessions, recentRaw] =
+  const [todayCount, last, monthCount, totalSessions, recentRaw, progression] =
     await Promise.all([
       db.workoutSession.count({
         where: { sessionDate: { gte: startOfDay(now), lte: endOfDay(now) } },
@@ -47,6 +47,7 @@ export async function getDashboardData(): Promise<DashboardData> {
           _count: { select: { exerciseLogs: true, cardioLogs: true } },
         },
       }),
+      topMovers(),
     ]);
 
   return {
@@ -63,7 +64,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       exerciseCount: s._count.exerciseLogs,
       cardioCount: s._count.cardioLogs,
     })),
-    progression: await topMovers(),
+    progression,
   };
 }
 
