@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, authSecret, verifySession } from "@/lib/session";
+import { SESSION_COOKIE, authSecret, readSession } from "@/lib/session";
 
 const PUBLIC_PREFIXES = ["/lock", "/api/cron"];
 
@@ -12,9 +12,9 @@ export async function middleware(req: NextRequest) {
   }
 
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  const ok = await verifySession(authSecret(), token);
+  const userId = await readSession(authSecret(), token);
 
-  if (!ok) {
+  if (!userId) {
     const url = req.nextUrl.clone();
     url.pathname = "/lock";
     url.search = "";

@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import {
   ChevronDown,
   ChevronUp,
+  Copy,
   Dumbbell,
+  ExternalLink,
   HeartPulse,
   MoreVertical,
   Pencil,
@@ -14,6 +16,7 @@ import {
   Search,
   Star,
   Trash2,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -54,6 +57,7 @@ import {
   createExercise,
   deleteExercise,
   reorderExercises,
+  setExercisePosture,
   toggleFavorite,
   updateExercise,
 } from "@/lib/actions/exercises";
@@ -63,6 +67,7 @@ type Ex = {
   name: string;
   type: ExerciseType;
   isFavorite: boolean;
+  postureUrl: string | null;
 };
 
 export function ExerciseManager({
@@ -81,6 +86,7 @@ export function ExerciseManager({
   const [editing, setEditing] = useState<Ex | null>(null);
   const [name, setName] = useState("");
   const [type, setType] = useState<ExerciseType>("STRENGTH");
+  const [posture, setPosture] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Ex | null>(null);
 
@@ -96,36 +102,61 @@ export function ExerciseManager({
     setEditing(null);
     setName("");
     setType("STRENGTH");
+    setPosture("");
     setFormOpen(true);
   }
   function openEdit(ex: Ex) {
     setEditing(ex);
     setName(ex.name);
     setType(ex.type);
+    setPosture(ex.postureUrl ?? "");
     setFormOpen(true);
   }
 
   async function save() {
     const trimmed = name.trim();
     if (!trimmed) return;
+    const postureUrl = posture.trim() || null;
     setSaving(true);
     try {
       if (editing) {
-        await updateExercise(editing.id, { name: trimmed, type });
+        await updateExercise(editing.id, { name: trimmed, type, postureUrl });
         setItems((it) =>
-          it.map((x) => (x.id === editing.id ? { ...x, name: trimmed, type } : x)),
+          it.map((x) =>
+            x.id === editing.id ? { ...x, name: trimmed, type, postureUrl } : x,
+          ),
         );
         toast.success("Exercise updated");
       } else {
-        await createExercise({ workoutDayId: dayId, name: trimmed, type });
+        await createExercise({ workoutDayId: dayId, name: trimmed, type, postureUrl });
         toast.success("Exercise added");
         router.refresh();
       }
       setFormOpen(false);
     } catch {
-      toast.error("Something went wrong");
+      toast.error("Invalid link or something went wrong");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function clearPosture(ex: Ex) {
+    setItems((it) => it.map((x) => (x.id === ex.id ? { ...x, postureUrl: null } : x)));
+    try {
+      await setExercisePosture(ex.id, null);
+      toast.success("Posture link removed");
+    } catch {
+      toast.error("Could not remove link");
+      router.refresh();
+    }
+  }
+
+  async function copyPosture(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied");
+    } catch {
+      toast.error("Couldn’t copy");
     }
   }
 
@@ -186,7 +217,8 @@ export function ExerciseManager({
         {filtered.map((ex) => {
           const idx = items.findIndex((e) => e.id === ex.id);
           return (
-            <Card key={ex.id} className="flex-row items-center gap-2 p-3">
+            <Card key={ex.id} className="gap-2 p-3">
+              <div className="flex items-center gap-2">
               <div
                 className={cn(
                   "flex size-9 shrink-0 items-center justify-center rounded-lg",
@@ -265,6 +297,46 @@ export function ExerciseManager({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              </div>
+
+              {ex.postureUrl && (
+                <div className="flex items-center gap-1 rounded-lg bg-muted/40 px-2.5 py-1.5">
+                  <Video className="size-3.5 shrink-0 text-chart-2" />
+                  <a
+                    href={ex.postureUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex min-w-0 flex-1 items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <span className="truncate">{ex.postureUrl}</span>
+                    <ExternalLink className="size-3 shrink-0" />
+                  </a>
+                  <button
+                    type="button"
+                    aria-label="Copy link"
+                    onClick={() => copyPosture(ex.postureUrl!)}
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Copy className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Edit link"
+                    onClick={() => openEdit(ex)}
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Remove link"
+                    onClick={() => clearPosture(ex)}
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              )}
             </Card>
           );
         })}
@@ -301,6 +373,13 @@ export function ExerciseManager({
                 <SelectItem value="CARDIO">Cardio</SelectItem>
               </SelectContent>
             </Select>
+            <Input
+              value={posture}
+              onChange={(e) => setPosture(e.target.value)}
+              placeholder="Correct posture link (optional)"
+              inputMode="url"
+              type="url"
+            />
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setFormOpen(false)}>

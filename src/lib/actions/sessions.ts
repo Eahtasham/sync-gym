@@ -3,14 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUserId } from "@/lib/auth";
 import { avgSpeed } from "@/lib/format";
 
 /**
  * Create a session for a workout day, prefilling each exercise from the last
- * time it was done (matched by name, across any day). Batched into ~3 queries
- * + one nested create to keep it fast on a remote (Turso) database.
+ * time the CURRENT USER did it (matched by name, across any day). Batched into
+ * ~3 queries + one nested create.
  */
 export async function startSession(workoutDayId: string) {
+  const userId = await getCurrentUserId();
+  if (!userId) redirect("/lock");
+
   const day = await db.workoutDay.findUniqueOrThrow({
     where: { id: workoutDayId },
     include: { exercises: { orderBy: { displayOrder: "asc" } } },
@@ -25,6 +29,7 @@ export async function startSession(workoutDayId: string) {
           where: {
             exercise: { name: { in: strengthEx.map((e) => e.name) } },
             sets: { some: {} },
+            workoutSession: { userId },
           },
           orderBy: { workoutSession: { sessionDate: "desc" } },
           include: {
@@ -35,7 +40,10 @@ export async function startSession(workoutDayId: string) {
       : Promise.resolve([]),
     cardioEx.length
       ? db.cardioLog.findMany({
-          where: { exercise: { name: { in: cardioEx.map((e) => e.name) } } },
+          where: {
+            exercise: { name: { in: cardioEx.map((e) => e.name) } },
+            workoutSession: { userId },
+          },
           orderBy: { workoutSession: { sessionDate: "desc" } },
           include: { exercise: { select: { name: true } } },
         })
@@ -54,6 +62,7 @@ export async function startSession(workoutDayId: string) {
 
   const session = await db.workoutSession.create({
     data: {
+      userId: userId!,
       workoutDayId,
       exerciseLogs: {
         create: strengthEx.map((ex) => {
@@ -85,6 +94,7 @@ export async function startSession(workoutDayId: string) {
 
 /** Add extra exercises to an in-progress session (e.g. add biceps + cardio to back day). */
 export async function addExercisesToSession(sessionId: string, exerciseIds: string[]) {
+  const userId = await getCurrentUserId();
   const exercises = await db.exercise.findMany({
     where: { id: { in: exerciseIds } },
   });
@@ -97,7 +107,11 @@ export async function addExercisesToSession(sessionId: string, exerciseIds: stri
       });
       if (exists) continue;
       const prev = await db.cardioLog.findFirst({
-        where: { exercise: { name: ex.name }, workoutSessionId: { not: sessionId } },
+        where: {
+          exercise: { name: ex.name },
+          workoutSessionId: { not: sessionId },
+          ...(userId ? { workoutSession: { userId } } : {}),
+        },
         orderBy: { workoutSession: { sessionDate: "desc" } },
       });
       await db.cardioLog.create({
@@ -121,6 +135,7 @@ export async function addExercisesToSession(sessionId: string, exerciseIds: stri
           exercise: { name: ex.name },
           workoutSessionId: { not: sessionId },
           sets: { some: {} },
+          ...(userId ? { workoutSession: { userId } } : {}),
         },
         orderBy: { workoutSession: { sessionDate: "desc" } },
         include: { sets: { orderBy: { setNumber: "asc" } } },
@@ -146,6 +161,60 @@ export async function removeExerciseLog(logId: string) {
 export async function removeCardioLog(logId: string) {
   const log = await db.cardioLog.delete({ where: { id: logId } });
   revalidatePath(`/session/${log.workoutSessionId}`);
+}
+
+/** Save a single strength exercise's sets + notes (per-exercise Save button). */
+export async function saveExerciseLog(
+  logId: string,
+  data: { notes?: string | null; sets: { weight: number; reps: number }[] },
+) {
+  await db.$transaction([
+    db.exerciseSet.deleteMany({ where: { exerciseLogId: logId } }),
+    db.exerciseLog.update({
+      where: { id: logId },
+      data: {
+        notes: data.notes ?? null,
+        sets: {
+          create: data.sets.map((s, i) => ({
+            setNumber: i + 1,
+            weight: s.weight,
+            reps: s.reps,
+          })),
+        },
+      },
+    }),
+  ]);
+  revalidatePath("/dashboard");
+  revalidatePath("/history");
+  revalidatePath("/progress");
+}
+
+/** Save a single cardio entry (per-exercise Save button). */
+export async function saveCardioLog(
+  logId: string,
+  data: {
+    durationMinutes: number;
+    distanceKm?: number | null;
+    calories?: number | null;
+    notes?: string | null;
+  },
+) {
+  await db.cardioLog.update({
+    where: { id: logId },
+    data: {
+      durationMinutes: data.durationMinutes,
+      distanceKm: data.distanceKm ?? null,
+      calories: data.calories ?? null,
+      avgSpeedKmh:
+        data.distanceKm && data.durationMinutes
+          ? avgSpeed(data.distanceKm, data.durationMinutes)
+          : null,
+      notes: data.notes ?? null,
+    },
+  });
+  revalidatePath("/dashboard");
+  revalidatePath("/history");
+  revalidatePath("/progress");
 }
 
 export type SaveSessionPayload = {
@@ -267,6 +336,7 @@ export async function duplicateSession(id: string) {
 
   const created = await db.workoutSession.create({
     data: {
+      userId: src.userId,
       workoutDayId: src.workoutDayId,
       notes: src.notes,
       exerciseLogs: {

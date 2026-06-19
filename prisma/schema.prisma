@@ -1,16 +1,33 @@
-// Gym Workout Tracker — Prisma schema (SQLite via libSQL/Turso driver adapter)
-// Templates (WorkoutDay, Exercise) are permanent; logs expire after 30 days.
+// Gym Workout Tracker — Prisma schema (Supabase Postgres)
+// Two-user app: workout-day/exercise templates are SHARED; sessions, sets,
+// cardio and bodyweight logs belong to a user. Workout logs expire after 30 days.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-/// A reusable workout template, e.g. "Chest Day", "Leg Day".
+/// An app user (profile). Auth is a per-user 4-digit PIN.
+model User {
+  id            String           @id @default(cuid())
+  name          String
+  pinHash       String?
+  weeklyGoal    Int              @default(5)
+  displayOrder  Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  sessions      WorkoutSession[]
+  bodyweightLogs BodyweightLog[]
+
+  @@index([displayOrder])
+}
+
+/// A reusable workout template, e.g. "Chest Day". Shared across users.
 model WorkoutDay {
   id           String           @id @default(cuid())
   name         String
@@ -22,7 +39,7 @@ model WorkoutDay {
   @@index([displayOrder])
 }
 
-/// An exercise belonging to a workout day. Strength or cardio.
+/// An exercise belonging to a workout day. Strength or cardio. Shared.
 model Exercise {
   id           String        @id @default(cuid())
   workoutDayId String
@@ -31,6 +48,7 @@ model Exercise {
   type         String        @default("STRENGTH") // "STRENGTH" | "CARDIO"
   displayOrder Int           @default(0)
   isFavorite   Boolean       @default(false)
+  postureUrl   String?       // optional link to a correct-posture demo/video
   createdAt    DateTime      @default(now())
   logs         ExerciseLog[]
   cardioLogs   CardioLog[]
@@ -38,9 +56,11 @@ model Exercise {
   @@index([workoutDayId, displayOrder])
 }
 
-/// A single performed workout. `createdAt` drives the 30-day expiry.
+/// A single performed workout, owned by a user. `createdAt` drives 30-day expiry.
 model WorkoutSession {
   id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutDayId String
   workoutDay   WorkoutDay    @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
   sessionDate  DateTime      @default(now())
@@ -49,7 +69,8 @@ model WorkoutSession {
   exerciseLogs ExerciseLog[]
   cardioLogs   CardioLog[]
 
-  @@index([workoutDayId, sessionDate])
+  @@index([userId, sessionDate])
+  @@index([workoutDayId])
   @@index([createdAt])
 }
 
@@ -96,10 +117,14 @@ model CardioLog {
   @@index([exerciseId])
 }
 
-/// Singleton app settings row (id = "singleton"). Holds the PIN hash.
-model Setting {
-  id        String   @id @default("singleton")
-  pinHash   String?
+/// A bodyweight measurement for a user (kg). Kept long-term (not purged).
+model BodyweightLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weightKg  Float
+  loggedAt  DateTime @default(now())
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@index([userId, loggedAt])
 }

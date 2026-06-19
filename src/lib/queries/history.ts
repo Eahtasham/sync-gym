@@ -29,7 +29,7 @@ export async function getHistoryFilterOptions() {
   return { days, exercises: uniqueExercises };
 }
 
-export async function getHistory(filters: HistoryFilters) {
+export async function getHistory(userId: string, filters: HistoryFilters) {
   const { dayId, exerciseId, from, to } = filters;
 
   const dateFilter =
@@ -54,6 +54,7 @@ export async function getHistory(filters: HistoryFilters) {
 
   const sessions = await db.workoutSession.findMany({
     where: {
+      userId,
       ...(dayId ? { workoutDayId: dayId } : {}),
       ...dateFilter,
       ...(exerciseName
@@ -81,9 +82,9 @@ export async function getHistory(filters: HistoryFilters) {
   }));
 }
 
-export async function getSessionDetail(id: string) {
-  return db.workoutSession.findUnique({
-    where: { id },
+export async function getSessionDetail(id: string, userId: string) {
+  return db.workoutSession.findFirst({
+    where: { id, userId },
     include: {
       workoutDay: { select: { id: true, name: true } },
       exerciseLogs: {

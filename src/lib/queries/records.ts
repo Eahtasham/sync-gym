@@ -7,30 +7,30 @@ export type PersonalRecords = {
   longestDistance: { exercise: string; km: number } | null;
 };
 
-export async function getPersonalRecords(): Promise<PersonalRecords> {
+export async function getPersonalRecords(userId: string): Promise<PersonalRecords> {
   const [heaviest, mostReps, longestCardio, longestDistance] =
     await Promise.all([
       db.exerciseSet.findFirst({
-        where: { weight: { gt: 0 } },
+        where: { weight: { gt: 0 }, exerciseLog: { workoutSession: { userId } } },
         orderBy: [{ weight: "desc" }, { reps: "desc" }],
         include: {
           exerciseLog: { include: { exercise: { select: { name: true } } } },
         },
       }),
       db.exerciseSet.findFirst({
-        where: { reps: { gt: 0 } },
+        where: { reps: { gt: 0 }, exerciseLog: { workoutSession: { userId } } },
         orderBy: [{ reps: "desc" }, { weight: "desc" }],
         include: {
           exerciseLog: { include: { exercise: { select: { name: true } } } },
         },
       }),
       db.cardioLog.findFirst({
-        where: { durationMinutes: { gt: 0 } },
+        where: { durationMinutes: { gt: 0 }, workoutSession: { userId } },
         orderBy: { durationMinutes: "desc" },
         include: { exercise: { select: { name: true } } },
       }),
       db.cardioLog.findFirst({
-        where: { distanceKm: { gt: 0 } },
+        where: { distanceKm: { gt: 0 }, workoutSession: { userId } },
         orderBy: { distanceKm: "desc" },
         include: { exercise: { select: { name: true } } },
       }),

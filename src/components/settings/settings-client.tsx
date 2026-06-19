@@ -3,11 +3,19 @@
 import { useActionState, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, Loader2, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, Target, Trash2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { renameProfileAction, setWeeklyGoalAction } from "@/lib/actions/auth-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +29,87 @@ import {
 } from "@/components/ui/alert-dialog";
 import { changePinAction } from "@/lib/actions/auth-actions";
 import { clearAllHistory } from "@/lib/actions/settings";
+
+export function ProfileSettings({
+  initialName,
+  initialGoal,
+}: {
+  initialName: string;
+  initialGoal: number;
+}) {
+  const router = useRouter();
+  const [name, setName] = useState(initialName);
+  const [goal, setGoal] = useState(String(initialGoal));
+  const [pending, start] = useTransition();
+
+  function saveName() {
+    if (!name.trim() || name.trim() === initialName) return;
+    start(async () => {
+      await renameProfileAction(name);
+      toast.success("Profile renamed");
+      router.refresh();
+    });
+  }
+  function changeGoal(v: string | null) {
+    if (!v) return;
+    setGoal(v);
+    start(async () => {
+      await setWeeklyGoalAction(Number(v));
+      toast.success("Weekly goal updated");
+      router.refresh();
+    });
+  }
+
+  return (
+    <Card className="gap-4 p-4">
+      <div className="flex items-center gap-2">
+        <User className="size-4 text-primary" />
+        <h2 className="font-semibold">Profile</h2>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="profile-name">Display name</Label>
+        <div className="flex gap-2">
+          <Input
+            id="profile-name"
+            value={name}
+            maxLength={30}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Button
+            variant="secondary"
+            disabled={pending || !name.trim() || name.trim() === initialName}
+            onClick={saveName}
+          >
+            Save
+          </Button>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="flex items-center gap-1.5">
+          <Target className="size-4" /> Weekly goal (keeps your streak alive)
+        </Label>
+        <Select
+          value={goal}
+          items={Object.fromEntries(
+            [1, 2, 3, 4, 5, 6, 7].map((n) => [String(n), `${n} day${n === 1 ? "" : "s"} / week`]),
+          )}
+          onValueChange={changeGoal}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n} day{n === 1 ? "" : "s"} / week
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </Card>
+  );
+}
 
 export function ChangePinForm() {
   const [state, formAction, pending] = useActionState(changePinAction, {});

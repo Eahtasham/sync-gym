@@ -119,16 +119,20 @@ const LIBRARY: { day: string; exercises: Ex[] }[] = [
 ];
 
 async function main() {
-  // Ensure settings singleton exists (PIN starts unset -> first-run set flow).
-  await db.setting.upsert({
-    where: { id: "singleton" },
-    update: {},
-    create: { id: "singleton" },
-  });
+  // Two profiles. PIN starts unset -> each sets it on first run. Renamable in Settings.
+  const users = ["You", "Friend"];
+  for (let i = 0; i < users.length; i++) {
+    const name = users[i];
+    const existing = await db.user.findFirst({ where: { name } });
+    if (!existing) {
+      await db.user.create({ data: { name, displayOrder: i, weeklyGoal: 5 } });
+      console.log(`Created profile "${name}"`);
+    }
+  }
 
   const existing = await db.workoutDay.count();
   if (existing > 0) {
-    console.log(`Skipping seed: ${existing} workout day(s) already exist.`);
+    console.log(`Skipping library seed: ${existing} workout day(s) already exist.`);
     return;
   }
 

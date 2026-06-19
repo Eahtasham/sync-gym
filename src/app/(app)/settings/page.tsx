@@ -1,31 +1,40 @@
-import { Info, Lock } from "lucide-react";
+import { Info, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
-import { ChangePinForm, DangerZone } from "@/components/settings/settings-client";
+import {
+  ChangePinForm,
+  DangerZone,
+  ProfileSettings,
+} from "@/components/settings/settings-client";
 import { lockAction } from "@/lib/actions/auth-actions";
+import { requireUser } from "@/lib/auth";
 import { RETENTION_DAYS } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const user = await requireUser();
+
   return (
     <div className="space-y-4">
-      <PageHeader title="Settings" />
+      <PageHeader title="Settings" subtitle={`Signed in as ${user.name}`} />
+
+      <ProfileSettings initialName={user.name} initialGoal={user.weeklyGoal} />
 
       <ChangePinForm />
 
       <Card className="gap-4 p-4">
         <div className="flex items-center gap-2">
-          <Lock className="size-4 text-primary" />
-          <h2 className="font-semibold">Lock app</h2>
+          <LogOut className="size-4 text-primary" />
+          <h2 className="font-semibold">Switch user</h2>
         </div>
         <p className="text-sm text-muted-foreground">
-          Lock now and require your PIN to get back in.
+          Lock and return to the profile picker to switch between accounts.
         </p>
         <form action={lockAction}>
           <Button type="submit" variant="secondary" className="w-full">
-            Lock now
+            Switch / lock
           </Button>
         </form>
       </Card>

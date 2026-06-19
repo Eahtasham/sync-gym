@@ -7,6 +7,7 @@ import {
   getHistory,
   getHistoryFilterOptions,
 } from "@/lib/queries/history";
+import { requireUser } from "@/lib/auth";
 import { friendlyDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -17,9 +18,10 @@ export default async function HistoryPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const sp = await searchParams;
+  const user = await requireUser();
   const [options, sessions] = await Promise.all([
     getHistoryFilterOptions(),
-    getHistory({
+    getHistory(user.id, {
       dayId: sp.dayId,
       exerciseId: sp.exerciseId,
       from: sp.from,

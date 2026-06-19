@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { isAuthenticated } from "@/lib/auth";
+import { getCurrentUserId } from "@/lib/auth";
 import { BottomNav } from "@/components/nav/bottom-nav";
 
 export default async function AppLayout({
@@ -8,7 +8,7 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   // Defense in depth (middleware already gates these routes).
-  if (!(await isAuthenticated())) redirect("/lock");
+  if (!(await getCurrentUserId())) redirect("/lock");
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">

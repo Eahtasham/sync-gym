@@ -28,29 +28,29 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
   );
 }
 
-export async function signSession(secret: string): Promise<string> {
-  const payload = JSON.stringify({ exp: Date.now() + SESSION_TTL_MS });
+export async function signSession(
+  secret: string,
+  userId: string,
+): Promise<string> {
+  const payload = JSON.stringify({ uid: userId, exp: Date.now() + SESSION_TTL_MS });
   const payloadB64 = b64urlEncodeStr(payload);
   const key = await hmacKey(secret);
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payloadB64));
   return `${payloadB64}.${b64urlEncode(new Uint8Array(sig))}`;
 }
 
-export async function verifySession(
+/** Returns the authenticated userId if the token is valid & unexpired, else null. */
+export async function readSession(
   secret: string,
   token: string | undefined,
-): Promise<boolean> {
-  if (!token) return false;
+): Promise<string | null> {
+  if (!token) return null;
   const [payloadB64, sigB64] = token.split(".");
-  if (!payloadB64 || !sigB64) return false;
+  if (!payloadB64 || !sigB64) return null;
 
   const key = await hmacKey(secret);
-  const expected = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    enc.encode(payloadB64),
-  );
-  if (b64urlEncode(new Uint8Array(expected)) !== sigB64) return false;
+  const expected = await crypto.subtle.sign("HMAC", key, enc.encode(payloadB64));
+  if (b64urlEncode(new Uint8Array(expected)) !== sigB64) return null;
 
   try {
     const payload = JSON.parse(
@@ -60,10 +60,11 @@ export async function verifySession(
           (c) => c.charCodeAt(0),
         ),
       ),
-    ) as { exp?: number };
-    return typeof payload.exp === "number" && payload.exp > Date.now();
+    ) as { exp?: number; uid?: string };
+    if (typeof payload.exp !== "number" || payload.exp <= Date.now()) return null;
+    return typeof payload.uid === "string" ? payload.uid : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

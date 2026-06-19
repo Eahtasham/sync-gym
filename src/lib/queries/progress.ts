@@ -7,15 +7,21 @@ export type CardioPoint = {
   distanceKm: number | null;
 };
 
-export async function getProgressExercises() {
+export async function getProgressExercises(userId: string) {
   const [strength, cardio] = await Promise.all([
     db.exercise.findMany({
-      where: { type: "STRENGTH", logs: { some: { sets: { some: {} } } } },
+      where: {
+        type: "STRENGTH",
+        logs: { some: { sets: { some: {} }, workoutSession: { userId } } },
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
     db.exercise.findMany({
-      where: { type: "CARDIO", cardioLogs: { some: {} } },
+      where: {
+        type: "CARDIO",
+        cardioLogs: { some: { workoutSession: { userId } } },
+      },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -33,6 +39,7 @@ export async function getProgressExercises() {
 }
 
 export async function getStrengthSeries(
+  userId: string,
   exerciseId: string,
 ): Promise<{ name: string; points: StrengthPoint[] }> {
   const exercise = await db.exercise.findUnique({
@@ -44,6 +51,7 @@ export async function getStrengthSeries(
     where: {
       exercise: { name: exercise?.name },
       sets: { some: { weight: { gt: 0 } } },
+      workoutSession: { userId },
     },
     orderBy: { workoutSession: { sessionDate: "asc" } },
     include: {
@@ -60,6 +68,7 @@ export async function getStrengthSeries(
 }
 
 export async function getCardioSeries(
+  userId: string,
   exerciseId: string,
 ): Promise<{ name: string; points: CardioPoint[] }> {
   const exercise = await db.exercise.findUnique({
@@ -67,7 +76,7 @@ export async function getCardioSeries(
     select: { name: true },
   });
   const logs = await db.cardioLog.findMany({
-    where: { exercise: { name: exercise?.name } },
+    where: { exercise: { name: exercise?.name }, workoutSession: { userId } },
     orderBy: { workoutSession: { sessionDate: "asc" } },
     include: { workoutSession: { select: { sessionDate: true } } },
   });

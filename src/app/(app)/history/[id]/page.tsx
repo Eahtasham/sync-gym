@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/page-header";
 import { SessionActions } from "@/components/history/session-actions";
 import { getSessionDetail } from "@/lib/queries/history";
+import { requireUser } from "@/lib/auth";
 import { duration, kg, km, setsSummary } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,8 @@ export default async function SessionDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = await getSessionDetail(id);
+  const user = await requireUser();
+  const session = await getSessionDetail(id, user.id);
   if (!session) notFound();
 
   return (

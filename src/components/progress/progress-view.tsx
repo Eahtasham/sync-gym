@@ -23,6 +23,8 @@ import {
 type Option = { id: string; name: string };
 type StrengthPoint = { label: string; topWeight: number; volume: number };
 type CardioPoint = { label: string; durationMinutes: number; distanceKm: number | null };
+type BodyweightPoint = { label: string; weightKg: number };
+type ProgressType = "strength" | "cardio" | "bodyweight";
 
 export function ProgressView({
   exercises,
@@ -30,19 +32,25 @@ export function ProgressView({
   selectedId,
   strengthData,
   cardioData,
+  bodyweightData,
 }: {
   exercises: { strength: Option[]; cardio: Option[] };
-  type: "strength" | "cardio";
+  type: ProgressType;
   selectedId: string | null;
   strengthData?: StrengthPoint[];
   cardioData?: CardioPoint[];
+  bodyweightData?: BodyweightPoint[];
 }) {
   const router = useRouter();
-  const list = type === "strength" ? exercises.strength : exercises.cardio;
+  const list = type === "cardio" ? exercises.cardio : exercises.strength;
 
   function switchType(next: string | null) {
     if (!next) return;
-    const t = next as "strength" | "cardio";
+    const t = next as ProgressType;
+    if (t === "bodyweight") {
+      router.push(`/progress?type=bodyweight`);
+      return;
+    }
     const first = (t === "strength" ? exercises.strength : exercises.cardio)[0]?.id;
     router.push(`/progress?type=${t}${first ? `&ex=${first}` : ""}`);
   }
@@ -63,10 +71,22 @@ export function ProgressView({
           <TabsTrigger value="cardio" className="flex-1">
             Cardio
           </TabsTrigger>
+          <TabsTrigger value="bodyweight" className="flex-1">
+            Weight
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
-      {!hasAny ? (
+      {type === "bodyweight" ? (
+        <ChartCard
+          title="Bodyweight (kg)"
+          data={bodyweightData ?? []}
+          dataKey="weightKg"
+          color="var(--chart-4)"
+          unit=" kg"
+          empty={!bodyweightData || bodyweightData.length === 0}
+        />
+      ) : !hasAny ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">
           No data yet. Log a few workouts to see your progress.
         </Card>

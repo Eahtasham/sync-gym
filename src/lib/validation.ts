@@ -6,10 +6,16 @@ export const workoutDaySchema = z.object({
 });
 export type WorkoutDayInput = z.infer<typeof workoutDaySchema>;
 
+export const postureUrlSchema = z
+  .union([z.string().trim().url("Enter a valid URL"), z.literal("")])
+  .optional()
+  .nullable();
+
 export const exerciseSchema = z.object({
   workoutDayId: z.string().min(1),
   name: z.string().trim().min(1, "Name is required").max(60, "Too long"),
   type: z.enum(EXERCISE_TYPES),
+  postureUrl: postureUrlSchema,
 });
 export type ExerciseInput = z.infer<typeof exerciseSchema>;
 

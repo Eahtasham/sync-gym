@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { SessionEditor } from "@/components/session/session-editor";
 import { getSessionForEdit } from "@/lib/queries/session";
 import { getAllExercises } from "@/lib/queries/workouts";
+import { requireUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,9 @@ export default async function SessionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const user = await requireUser();
   const [session, allExercises] = await Promise.all([
-    getSessionForEdit(id),
+    getSessionForEdit(id, user.id),
     getAllExercises(),
   ]);
   if (!session) notFound();

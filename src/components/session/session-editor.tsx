@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Check,
   Copy,
   Dumbbell,
+  ExternalLink,
   HeartPulse,
   Loader2,
   Plus,
@@ -28,37 +29,44 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { avgSpeed, friendlyDate, setsSummary } from "@/lib/format";
+import { avgSpeed, friendlyDate, kg } from "@/lib/format";
 import {
   addExercisesToSession,
   finishSession,
   removeCardioLog,
   removeExerciseLog,
-  saveSession,
+  saveCardioLog,
+  saveExerciseLog,
   type SaveSessionPayload,
 } from "@/lib/actions/sessions";
 import type { SessionForEdit } from "@/lib/queries/session";
 
 type LibraryExercise = { id: string; name: string; type: string };
-
 type SetRow = { weight: string; reps: string };
+type Status = "saved" | "dirty" | "saving";
+
 type StrengthState = {
   logId: string;
   name: string;
+  postureUrl: string | null;
   notes: string;
   showNotes: boolean;
   sets: SetRow[];
   previous: SessionForEdit["strength"][number]["previous"];
+  lastBest: SessionForEdit["strength"][number]["lastBest"];
+  status: Status;
 };
 type CardioState = {
   logId: string;
   name: string;
+  postureUrl: string | null;
   durationMinutes: string;
   distanceKm: string;
   calories: string;
   notes: string;
   showNotes: boolean;
   previous: SessionForEdit["cardio"][number]["previous"];
+  status: Status;
 };
 
 const num = (s: string) => {
@@ -78,6 +86,7 @@ export function SessionEditor({
     session.strength.map((e) => ({
       logId: e.logId,
       name: e.name,
+      postureUrl: e.postureUrl,
       notes: e.notes ?? "",
       showNotes: !!e.notes,
       sets: e.sets.map((s) => ({
@@ -85,30 +94,30 @@ export function SessionEditor({
         reps: s.reps ? String(s.reps) : "",
       })),
       previous: e.previous,
+      lastBest: e.lastBest,
+      status: "saved",
     })),
   );
   const [cardio, setCardio] = useState<CardioState[]>(
     session.cardio.map((c) => ({
       logId: c.logId,
       name: c.name,
+      postureUrl: c.postureUrl,
       durationMinutes: c.durationMinutes ? String(c.durationMinutes) : "",
       distanceKm: c.distanceKm != null ? String(c.distanceKm) : "",
       calories: c.calories != null ? String(c.calories) : "",
       notes: c.notes ?? "",
       showNotes: !!c.notes,
       previous: c.previous,
+      status: "saved",
     })),
   );
   const [sessionNotes, setSessionNotes] = useState(session.notes ?? "");
-  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [finishing, startFinish] = useTransition();
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const firstRender = useRef(true);
-  const dirty = useRef(false);
-  const latestPayload = useRef<SaveSessionPayload | null>(null);
+  const [busy, startBusy] = useTransition();
 
-  const buildPayload = useCallback(
-    (): SaveSessionPayload => ({
+  function buildPayload(): SaveSessionPayload {
+    return {
       notes: sessionNotes,
       logs: strength.map((e) => ({
         exerciseLogId: e.logId,
@@ -122,115 +131,25 @@ export function SessionEditor({
         calories: c.calories ? Math.round(num(c.calories)) : null,
         notes: c.notes || null,
       })),
-    }),
-    [strength, cardio, sessionNotes],
-  );
-
-  // Persist the latest edits now (awaited; used by the debounce).
-  const flush = useCallback(async () => {
-    if (!dirty.current || !latestPayload.current) return;
-    const payload = latestPayload.current;
-    dirty.current = false;
-    try {
-      await saveSession(session.id, payload);
-      setStatus("saved");
-    } catch {
-      dirty.current = true;
-      setStatus("idle");
-      toast.error("Couldn’t save — check your connection");
-    }
-  }, [session.id]);
-
-  // Debounced autosave on any change.
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
-    dirty.current = true;
-    latestPayload.current = buildPayload();
-    setStatus("saving");
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), 700);
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
     };
-  }, [strength, cardio, sessionNotes, buildPayload, flush]);
-
-  // Flush pending edits when leaving the screen so nothing is lost on
-  // back-navigation, tab switches, or the app being backgrounded on mobile.
-  useEffect(() => {
-    const fireAndForget = () => {
-      if (dirty.current && latestPayload.current) {
-        dirty.current = false;
-        void saveSession(session.id, latestPayload.current);
-      }
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") fireAndForget();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", fireAndForget);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", fireAndForget);
-      if (timer.current) clearTimeout(timer.current);
-      fireAndForget(); // flush on unmount (client-side navigation, e.g. Back)
-    };
-  }, [session.id]);
+  }
 
   function finish() {
-    if (timer.current) clearTimeout(timer.current);
-    dirty.current = false;
     startFinish(() => finishSession(session.id, buildPayload()));
   }
 
-  // ---- add / remove exercises mid-session ----
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [busy, startBusy] = useTransition();
-
-  const presentNames = useMemo(
-    () =>
-      new Set([
-        ...session.strength.map((s) => s.name),
-        ...session.cardio.map((c) => c.name),
-      ]),
-    [session],
-  );
-
-  const pickable = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return library.filter(
-      (e) =>
-        !presentNames.has(e.name) &&
-        (!q || e.name.toLowerCase().includes(q)),
-    );
-  }, [library, presentNames, search]);
-
-  /** Save current edits, run a mutation, then refresh (editor remounts via key). */
-  function persistThen(fn: () => Promise<unknown>) {
-    if (timer.current) clearTimeout(timer.current);
-    dirty.current = false;
-    startBusy(async () => {
-      await saveSession(session.id, buildPayload());
-      await fn();
-      router.refresh();
-    });
-  }
-
-  function addExercise(id: string) {
-    setPickerOpen(false);
-    setSearch("");
-    persistThen(() => addExercisesToSession(session.id, [id]));
-  }
-
-  // ---- strength mutations ----
+  // ---- strength ----
+  const markStrength = (li: number, status: Status) =>
+    setStrength((st) => st.map((e, i) => (i === li ? { ...e, status } : e)));
   const updateSet = (li: number, si: number, field: keyof SetRow, val: string) =>
     setStrength((st) =>
       st.map((e, i) =>
         i === li
-          ? { ...e, sets: e.sets.map((s, j) => (j === si ? { ...s, [field]: val } : s)) }
+          ? {
+              ...e,
+              status: "dirty",
+              sets: e.sets.map((s, j) => (j === si ? { ...s, [field]: val } : s)),
+            }
           : e,
       ),
     );
@@ -239,12 +158,18 @@ export function SessionEditor({
       st.map((e, i) => {
         if (i !== li) return e;
         const last = e.sets[e.sets.length - 1];
-        return { ...e, sets: [...e.sets, { weight: last?.weight ?? "", reps: last?.reps ?? "" }] };
+        return {
+          ...e,
+          status: "dirty",
+          sets: [...e.sets, { weight: last?.weight ?? "", reps: last?.reps ?? "" }],
+        };
       }),
     );
   const removeSet = (li: number, si: number) =>
     setStrength((st) =>
-      st.map((e, i) => (i === li ? { ...e, sets: e.sets.filter((_, j) => j !== si) } : e)),
+      st.map((e, i) =>
+        i === li ? { ...e, status: "dirty", sets: e.sets.filter((_, j) => j !== si) } : e,
+      ),
     );
   const copyPrevious = (li: number) =>
     setStrength((st) =>
@@ -252,6 +177,7 @@ export function SessionEditor({
         if (i !== li || !e.previous) return e;
         return {
           ...e,
+          status: "dirty",
           sets: e.previous.sets.map((s) => ({
             weight: s.weight ? String(s.weight) : "",
             reps: s.reps ? String(s.reps) : "",
@@ -259,20 +185,39 @@ export function SessionEditor({
         };
       }),
     );
+  const setStrengthNotes = (li: number, val: string) =>
+    setStrength((st) => st.map((e, i) => (i === li ? { ...e, status: "dirty", notes: val } : e)));
   const toggleStrengthNotes = (li: number) =>
     setStrength((st) => st.map((e, i) => (i === li ? { ...e, showNotes: !e.showNotes } : e)));
-  const setStrengthNotes = (li: number, val: string) =>
-    setStrength((st) => st.map((e, i) => (i === li ? { ...e, notes: val } : e)));
 
-  // ---- cardio mutations ----
+  async function saveStrength(li: number) {
+    const e = strength[li];
+    markStrength(li, "saving");
+    try {
+      await saveExerciseLog(e.logId, {
+        notes: e.notes || null,
+        sets: e.sets.map((s) => ({ weight: num(s.weight), reps: num(s.reps) })),
+      });
+      markStrength(li, "saved");
+      toast.success(`${e.name} saved`);
+    } catch {
+      markStrength(li, "dirty");
+      toast.error("Couldn’t save — check your connection");
+    }
+  }
+
+  // ---- cardio ----
   const updateCardio = (ci: number, field: keyof CardioState, val: string) =>
-    setCardio((c) => c.map((x, i) => (i === ci ? { ...x, [field]: val } : x)));
+    setCardio((c) =>
+      c.map((x, i) => (i === ci ? { ...x, status: "dirty", [field]: val } : x)),
+    );
   const copyPrevCardio = (ci: number) =>
     setCardio((c) =>
       c.map((x, i) => {
         if (i !== ci || !x.previous) return x;
         return {
           ...x,
+          status: "dirty",
           durationMinutes: x.previous.durationMinutes ? String(x.previous.durationMinutes) : "",
           distanceKm: x.previous.distanceKm != null ? String(x.previous.distanceKm) : "",
         };
@@ -281,22 +226,75 @@ export function SessionEditor({
   const toggleCardioNotes = (ci: number) =>
     setCardio((c) => c.map((x, i) => (i === ci ? { ...x, showNotes: !x.showNotes } : x)));
 
+  async function saveCardio(ci: number) {
+    const c = cardio[ci];
+    setCardio((arr) => arr.map((x, i) => (i === ci ? { ...x, status: "saving" } : x)));
+    try {
+      await saveCardioLog(c.logId, {
+        durationMinutes: num(c.durationMinutes),
+        distanceKm: c.distanceKm ? num(c.distanceKm) : null,
+        calories: c.calories ? Math.round(num(c.calories)) : null,
+        notes: c.notes || null,
+      });
+      setCardio((arr) => arr.map((x, i) => (i === ci ? { ...x, status: "saved" } : x)));
+      toast.success(`${c.name} saved`);
+    } catch {
+      setCardio((arr) => arr.map((x, i) => (i === ci ? { ...x, status: "dirty" } : x)));
+      toast.error("Couldn’t save — check your connection");
+    }
+  }
+
+  // ---- add / remove ----
+  const presentNames = useMemo(
+    () => new Set([...session.strength.map((s) => s.name), ...session.cardio.map((c) => c.name)]),
+    [session],
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const pickable = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return library.filter(
+      (e) => !presentNames.has(e.name) && (!q || e.name.toLowerCase().includes(q)),
+    );
+  }, [library, presentNames, search]);
+
+  function addExercise(id: string) {
+    setPickerOpen(false);
+    setSearch("");
+    startBusy(async () => {
+      await addExercisesToSession(session.id, [id]);
+      router.refresh();
+    });
+  }
+  function removeStrength(logId: string) {
+    startBusy(async () => {
+      await removeExerciseLog(logId);
+      router.refresh();
+    });
+  }
+  function removeCardioEntry(logId: string) {
+    startBusy(async () => {
+      await removeCardioLog(logId);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-4 pb-28">
-      {/* status pill */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{friendlyDate(session.sessionDate)}</p>
-        <SaveStatus status={status} />
-      </div>
+      <p className="text-sm text-muted-foreground">{friendlyDate(session.sessionDate)}</p>
 
       {strength.map((e, li) => (
         <Card key={e.logId} className="gap-3 p-4">
           <div className="flex items-start justify-between gap-2">
-            <div>
-              <h3 className="font-semibold">{e.name}</h3>
+            <div className="min-w-0">
+              <h3 className="flex items-center gap-2 font-semibold">
+                <span className="truncate">{e.name}</span>
+                {e.postureUrl && <PostureLink url={e.postureUrl} />}
+              </h3>
               <p className="text-xs text-muted-foreground">
-                Previous:{" "}
-                {e.previous ? setsSummary(e.previous.sets) : "—"}
+                {e.lastBest
+                  ? `Last best: ${kg(e.lastBest.weight)} × ${e.lastBest.reps}`
+                  : "No previous data"}
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -314,7 +312,7 @@ export function SessionEditor({
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => persistThen(() => removeExerciseLog(e.logId))}
+                onClick={() => removeStrength(e.logId)}
                 className="rounded-md p-1.5 text-muted-foreground hover:bg-accent disabled:opacity-40"
                 aria-label="Remove exercise"
               >
@@ -323,7 +321,6 @@ export function SessionEditor({
             </div>
           </div>
 
-          {/* column labels */}
           <div className="grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2 px-1 text-[11px] font-medium uppercase text-muted-foreground">
             <span>Set</span>
             <span>Weight (kg)</span>
@@ -332,10 +329,7 @@ export function SessionEditor({
           </div>
 
           {e.sets.map((s, si) => (
-            <div
-              key={si}
-              className="grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2"
-            >
+            <div key={si} className="grid grid-cols-[2rem_1fr_1fr_2rem] items-center gap-2">
               <span className="text-center text-sm font-semibold text-muted-foreground">
                 {si + 1}
               </span>
@@ -365,25 +359,16 @@ export function SessionEditor({
             </div>
           ))}
 
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              className="flex-1 gap-1.5"
-              onClick={() => addSet(li)}
-            >
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => addSet(li)}>
               <Plus className="size-4" /> Add set
             </Button>
             {e.previous && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => copyPrevious(li)}
-              >
+              <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => copyPrevious(li)}>
                 <Copy className="size-4" /> Copy previous
               </Button>
             )}
+            <SaveButton status={e.status} onClick={() => saveStrength(li)} />
           </div>
 
           {e.showNotes && (
@@ -398,24 +383,25 @@ export function SessionEditor({
       ))}
 
       {cardio.map((c, ci) => {
-        const speed = c.distanceKm && c.durationMinutes
-          ? avgSpeed(num(c.distanceKm), num(c.durationMinutes))
-          : null;
+        const speed =
+          c.distanceKm && c.durationMinutes
+            ? avgSpeed(num(c.distanceKm), num(c.durationMinutes))
+            : null;
         return (
           <Card key={c.logId} className="gap-3 p-4">
             <div className="flex items-start justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <h3 className="flex items-center gap-2 font-semibold">
-                  {c.name}
+                  <span className="truncate">{c.name}</span>
                   <Badge variant="secondary" className="text-chart-2">Cardio</Badge>
+                  {c.postureUrl && <PostureLink url={c.postureUrl} />}
                 </h3>
                 <p className="text-xs text-muted-foreground">
-                  Previous:{" "}
                   {c.previous
-                    ? `${Math.round(c.previous.durationMinutes)} min${
+                    ? `Last: ${Math.round(c.previous.durationMinutes)} min${
                         c.previous.distanceKm ? ` · ${c.previous.distanceKm} km` : ""
                       }`
-                    : "—"}
+                    : "No previous data"}
                 </p>
               </div>
               <div className="flex items-center gap-1">
@@ -433,7 +419,7 @@ export function SessionEditor({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => persistThen(() => removeCardioLog(c.logId))}
+                  onClick={() => removeCardioEntry(c.logId)}
                   className="rounded-md p-1.5 text-muted-foreground hover:bg-accent disabled:opacity-40"
                   aria-label="Remove exercise"
                 >
@@ -477,17 +463,13 @@ export function SessionEditor({
               </Field>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {c.previous && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => copyPrevCardio(ci)}
-                >
+                <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => copyPrevCardio(ci)}>
                   <Copy className="size-4" /> Copy previous
                 </Button>
               )}
+              <SaveButton status={c.status} onClick={() => saveCardio(ci)} />
             </div>
 
             {c.showNotes && (
@@ -502,7 +484,6 @@ export function SessionEditor({
         );
       })}
 
-      {/* Add exercise (mix in any body part or cardio for today) */}
       <Sheet open={pickerOpen} onOpenChange={setPickerOpen}>
         <SheetTrigger
           render={
@@ -544,16 +525,10 @@ export function SessionEditor({
                 <span
                   className={cn(
                     "flex size-9 shrink-0 items-center justify-center rounded-lg",
-                    ex.type === "CARDIO"
-                      ? "bg-chart-2/15 text-chart-2"
-                      : "bg-primary/15 text-primary",
+                    ex.type === "CARDIO" ? "bg-chart-2/15 text-chart-2" : "bg-primary/15 text-primary",
                   )}
                 >
-                  {ex.type === "CARDIO" ? (
-                    <HeartPulse className="size-5" />
-                  ) : (
-                    <Dumbbell className="size-5" />
-                  )}
+                  {ex.type === "CARDIO" ? <HeartPulse className="size-5" /> : <Dumbbell className="size-5" />}
                 </span>
                 <span className="flex-1 font-medium">{ex.name}</span>
                 <Plus className="size-5 text-muted-foreground" />
@@ -569,7 +544,6 @@ export function SessionEditor({
         </Card>
       )}
 
-      {/* session notes */}
       <Textarea
         value={sessionNotes}
         onChange={(e) => setSessionNotes(e.target.value)}
@@ -577,16 +551,10 @@ export function SessionEditor({
         rows={2}
       />
 
-      {/* sticky finish bar */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-4 py-3 backdrop-blur safe-bottom">
-        <div className="mx-auto flex max-w-2xl items-center gap-3">
-          <SaveStatus status={status} className="flex-1" />
+        <div className="mx-auto flex max-w-2xl items-center justify-end">
           <Button onClick={finish} disabled={finishing} className="gap-2" size="lg">
-            {finishing ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <Check className="size-5" />
-            )}
+            {finishing ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
             Finish
           </Button>
         </div>
@@ -595,41 +563,44 @@ export function SessionEditor({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function PostureLink({ url }: { url: string }) {
   return (
-    <label className="space-y-1.5">
-      <span className="text-[11px] font-medium uppercase text-muted-foreground">
-        {label}
-      </span>
-      {children}
-    </label>
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 rounded-md bg-accent px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+      aria-label="View correct posture"
+    >
+      <ExternalLink className="size-3" /> Posture
+    </a>
   );
 }
 
-function SaveStatus({
-  status,
-  className,
-}: {
-  status: "idle" | "saving" | "saved";
-  className?: string;
-}) {
+function SaveButton({ status, onClick }: { status: Status; onClick: () => void }) {
   return (
-    <span
-      className={cn(
-        "flex items-center gap-1.5 text-xs text-muted-foreground",
-        className,
-      )}
+    <Button
+      size="sm"
+      variant={status === "dirty" ? "default" : "ghost"}
+      className="ml-auto gap-1.5"
+      disabled={status === "saving"}
+      onClick={onClick}
     >
-      {status === "saving" && (
-        <>
-          <Loader2 className="size-3.5 animate-spin" /> Saving…
-        </>
-      )}
-      {status === "saved" && (
-        <>
-          <Check className="size-3.5 text-primary" /> Saved
-        </>
-      )}
-    </span>
+      {status === "saving" ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : status === "saved" ? (
+        <Check className="size-4 text-primary" />
+      ) : null}
+      {status === "saved" ? "Saved" : "Save"}
+    </Button>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="space-y-1.5">
+      <span className="text-[11px] font-medium uppercase text-muted-foreground">{label}</span>
+      {children}
+    </label>
   );
 }

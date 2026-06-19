@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { Delete } from "lucide-react";
+import { ChevronLeft, Delete } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createPinAction, unlockAction } from "@/lib/actions/auth-actions";
+
+type Profile = { id: string; name: string; hasPin: boolean };
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 
@@ -23,21 +25,71 @@ function Dots({ count }: { count: number }) {
   );
 }
 
-export function LockScreen({ mode }: { mode: "create" | "unlock" }) {
+export function LockScreen({ profiles }: { profiles: Profile[] }) {
+  const [profile, setProfile] = useState<Profile | null>(
+    profiles.length === 1 ? profiles[0] : null,
+  );
+
+  if (!profile) {
+    return (
+      <div className="flex w-full max-w-xs flex-col items-stretch gap-3">
+        <p className="mb-1 text-center text-sm text-muted-foreground">
+          Who&apos;s training?
+        </p>
+        {profiles.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setProfile(p)}
+            className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-4 text-left active:scale-[0.99] transition-transform"
+          >
+            <span className="flex size-11 items-center justify-center rounded-full bg-primary/15 text-lg font-bold text-primary">
+              {p.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="flex-1 font-semibold">{p.name}</span>
+            <span className="text-xs text-muted-foreground">
+              {p.hasPin ? "Enter PIN" : "Set PIN"}
+            </span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <PinPad
+      profile={profile}
+      canSwitch={profiles.length > 1}
+      onBack={() => setProfile(null)}
+    />
+  );
+}
+
+function PinPad({
+  profile,
+  canSwitch,
+  onBack,
+}: {
+  profile: Profile;
+  canSwitch: boolean;
+  onBack: () => void;
+}) {
+  const mode = profile.hasPin ? "unlock" : "create";
   const [digits, setDigits] = useState("");
   const [stage, setStage] = useState<"enter" | "confirm">("enter");
   const [firstPin, setFirstPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const handledRef = useRef<string | null>(null);
 
   function submit(pin: string, confirm?: string) {
     const fd = new FormData();
+    fd.set("userId", profile.id);
     fd.set("pin", pin);
     if (confirm !== undefined) fd.set("confirm", confirm);
     startTransition(async () => {
       const action = mode === "create" ? createPinAction : unlockAction;
       const res = await action({}, fd);
-      // On success the action redirects; we only get here on error.
       if (res?.error) {
         setError(res.error);
         setDigits("");
@@ -49,15 +101,12 @@ export function LockScreen({ mode }: { mode: "create" | "unlock" }) {
     });
   }
 
-  const handledRef = useRef<string | null>(null);
-
   function handleComplete(pin: string) {
     setError(null);
     if (mode === "unlock") {
       submit(pin);
       return;
     }
-    // create mode: two-step
     if (stage === "enter") {
       setFirstPin(pin);
       setStage("confirm");
@@ -74,7 +123,6 @@ export function LockScreen({ mode }: { mode: "create" | "unlock" }) {
     }
   }
 
-  // When 4 digits are entered, run completion (after the 4th dot has painted).
   useEffect(() => {
     if (digits.length === 4 && handledRef.current !== digits) {
       handledRef.current = digits;
@@ -99,13 +147,22 @@ export function LockScreen({ mode }: { mode: "create" | "unlock" }) {
   const label =
     mode === "create"
       ? stage === "enter"
-        ? "Choose a PIN"
+        ? `Choose a PIN for ${profile.name}`
         : "Confirm your PIN"
-      : "Enter PIN";
+      : `Enter ${profile.name}'s PIN`;
 
   return (
     <div className="flex w-full max-w-xs flex-col items-center gap-8">
       <div className="flex flex-col items-center gap-4">
+        {canSwitch && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex items-center gap-1 text-xs text-muted-foreground"
+          >
+            <ChevronLeft className="size-4" /> Switch profile
+          </button>
+        )}
         <span className="text-sm font-medium text-muted-foreground">{label}</span>
         <Dots count={digits.length} />
         <span

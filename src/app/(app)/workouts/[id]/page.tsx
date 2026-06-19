@@ -38,6 +38,7 @@ export default async function WorkoutDayPage({
           name: e.name,
           type: e.type as ExerciseType,
           isFavorite: e.isFavorite,
+          postureUrl: e.postureUrl,
         }))}
       />
     </div>

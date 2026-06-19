@@ -2,13 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { exerciseSchema, exerciseUpdateSchema } from "@/lib/validation";
+import { exerciseSchema, exerciseUpdateSchema, postureUrlSchema } from "@/lib/validation";
 import type { ExerciseType } from "@/lib/types";
 
 export async function createExercise(input: {
   workoutDayId: string;
   name: string;
   type: ExerciseType;
+  postureUrl?: string | null;
 }) {
   const parsed = exerciseSchema.parse(input);
   const max = await db.exercise.aggregate({
@@ -20,6 +21,7 @@ export async function createExercise(input: {
       workoutDayId: parsed.workoutDayId,
       name: parsed.name,
       type: parsed.type,
+      postureUrl: parsed.postureUrl || null,
       displayOrder: (max._max.displayOrder ?? -1) + 1,
     },
   });
@@ -28,12 +30,23 @@ export async function createExercise(input: {
 
 export async function updateExercise(
   id: string,
-  input: { name: string; type: ExerciseType },
+  input: { name: string; type: ExerciseType; postureUrl?: string | null },
 ) {
   const parsed = exerciseUpdateSchema.parse(input);
   const ex = await db.exercise.update({
     where: { id },
-    data: { name: parsed.name, type: parsed.type },
+    data: { name: parsed.name, type: parsed.type, postureUrl: parsed.postureUrl || null },
+  });
+  revalidatePath(`/workouts/${ex.workoutDayId}`);
+}
+
+/** Set or clear just the posture link (inline edit/delete next to the link). */
+export async function setExercisePosture(id: string, postureUrl: string | null) {
+  const value = postureUrl?.trim() || null;
+  if (value) postureUrlSchema.parse(value);
+  const ex = await db.exercise.update({
+    where: { id },
+    data: { postureUrl: value },
   });
   revalidatePath(`/workouts/${ex.workoutDayId}`);
 }

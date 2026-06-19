@@ -1,13 +1,12 @@
 import { Dumbbell } from "lucide-react";
-import { isAuthenticated, isPinSet } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { getCurrentUserId, getProfiles } from "@/lib/auth";
 import { LockScreen } from "./lock-screen";
 
 export default async function LockPage() {
-  // Already unlocked? Go straight in.
-  if (await isAuthenticated()) redirect("/dashboard");
+  if (await getCurrentUserId()) redirect("/dashboard");
 
-  const pinSet = await isPinSet();
+  const profiles = await getProfiles();
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center px-6 safe-top safe-bottom">
@@ -16,11 +15,8 @@ export default async function LockPage() {
           <Dumbbell className="size-8" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Sync Gym</h1>
-        <p className="text-sm text-muted-foreground">
-          {pinSet ? "Enter your PIN to continue" : "Create a 4-digit PIN to get started"}
-        </p>
       </div>
-      <LockScreen mode={pinSet ? "unlock" : "create"} />
+      <LockScreen profiles={profiles} />
     </main>
   );
 }
