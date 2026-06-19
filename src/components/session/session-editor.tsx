@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   Check,
   Copy,
@@ -103,6 +104,8 @@ export function SessionEditor({
   const [finishing, startFinish] = useTransition();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstRender = useRef(true);
+  const dirty = useRef(false);
+  const latestPayload = useRef<SaveSessionPayload | null>(null);
 
   const buildPayload = useCallback(
     (): SaveSessionPayload => ({
@@ -123,29 +126,62 @@ export function SessionEditor({
     [strength, cardio, sessionNotes],
   );
 
-  // Debounced autosave
+  // Persist the latest edits now (awaited; used by the debounce).
+  const flush = useCallback(async () => {
+    if (!dirty.current || !latestPayload.current) return;
+    const payload = latestPayload.current;
+    dirty.current = false;
+    try {
+      await saveSession(session.id, payload);
+      setStatus("saved");
+    } catch {
+      dirty.current = true;
+      setStatus("idle");
+      toast.error("Couldn’t save — check your connection");
+    }
+  }, [session.id]);
+
+  // Debounced autosave on any change.
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
+    dirty.current = true;
+    latestPayload.current = buildPayload();
     setStatus("saving");
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(async () => {
-      try {
-        await saveSession(session.id, buildPayload());
-        setStatus("saved");
-      } catch {
-        setStatus("idle");
-      }
-    }, 900);
+    timer.current = setTimeout(() => void flush(), 700);
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [strength, cardio, sessionNotes, session.id, buildPayload]);
+  }, [strength, cardio, sessionNotes, buildPayload, flush]);
+
+  // Flush pending edits when leaving the screen so nothing is lost on
+  // back-navigation, tab switches, or the app being backgrounded on mobile.
+  useEffect(() => {
+    const fireAndForget = () => {
+      if (dirty.current && latestPayload.current) {
+        dirty.current = false;
+        void saveSession(session.id, latestPayload.current);
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") fireAndForget();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", fireAndForget);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", fireAndForget);
+      if (timer.current) clearTimeout(timer.current);
+      fireAndForget(); // flush on unmount (client-side navigation, e.g. Back)
+    };
+  }, [session.id]);
 
   function finish() {
     if (timer.current) clearTimeout(timer.current);
+    dirty.current = false;
     startFinish(() => finishSession(session.id, buildPayload()));
   }
 
@@ -175,6 +211,7 @@ export function SessionEditor({
   /** Save current edits, run a mutation, then refresh (editor remounts via key). */
   function persistThen(fn: () => Promise<unknown>) {
     if (timer.current) clearTimeout(timer.current);
+    dirty.current = false;
     startBusy(async () => {
       await saveSession(session.id, buildPayload());
       await fn();
