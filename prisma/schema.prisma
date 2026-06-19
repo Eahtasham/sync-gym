@@ -3,7 +3,9 @@
 // cardio and bodyweight logs belong to a user. Workout logs expire after 30 days.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local dev; rhel-openssl-3.0.x is the engine Vercel's runtime needs.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
