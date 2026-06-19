@@ -1,5 +1,14 @@
 import { differenceInCalendarDays, startOfDay } from "date-fns";
 
+/** Number of distinct calendar days (in the local/server tz) within [from, to]. */
+export function distinctDayCount(dates: Date[], from: Date, to?: Date): number {
+  const set = new Set<number>();
+  for (const d of dates) {
+    if (d >= from && (!to || d <= to)) set.add(startOfDay(d).getTime());
+  }
+  return set.size;
+}
+
 /**
  * Streak that tolerates rest days based on a weekly goal.
  *

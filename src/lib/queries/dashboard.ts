@@ -7,7 +7,7 @@ import {
   subDays,
 } from "date-fns";
 import { db } from "@/lib/db";
-import { computeStreak } from "@/lib/streak";
+import { computeStreak, distinctDayCount } from "@/lib/streak";
 
 export type DashboardData = {
   todayDone: boolean;
@@ -34,21 +34,12 @@ export async function getDashboardData(
 ): Promise<DashboardData> {
   const now = new Date();
 
-  const [todayCount, last, monthCount, weekCount, totalSessions, recentRaw, streakDates, progression] =
+  const [last, totalSessions, recentRaw, recentDateRows, progression] =
     await Promise.all([
-      db.workoutSession.count({
-        where: { userId, sessionDate: { gte: startOfDay(now), lte: endOfDay(now) } },
-      }),
       db.workoutSession.findFirst({
         where: { userId },
         orderBy: { sessionDate: "desc" },
         include: { workoutDay: { select: { name: true } } },
-      }),
-      db.workoutSession.count({
-        where: { userId, sessionDate: { gte: startOfMonth(now), lte: endOfMonth(now) } },
-      }),
-      db.workoutSession.count({
-        where: { userId, sessionDate: { gte: weekStart(now) } },
       }),
       db.workoutSession.count({ where: { userId } }),
       db.workoutSession.findMany({
@@ -60,6 +51,7 @@ export async function getDashboardData(
           _count: { select: { exerciseLogs: true, cardioLogs: true } },
         },
       }),
+      // One pull of recent dates -> streak + distinct-day week/month/today counts.
       db.workoutSession.findMany({
         where: { userId, sessionDate: { gte: subDays(now, 60) } },
         select: { sessionDate: true },
@@ -67,15 +59,17 @@ export async function getDashboardData(
       topMovers(userId),
     ]);
 
+  const dates = recentDateRows.map((s) => s.sessionDate);
+
   return {
-    todayDone: todayCount > 0,
+    todayDone: distinctDayCount(dates, startOfDay(now), endOfDay(now)) > 0,
     lastWorkout: last
       ? { date: last.sessionDate, dayName: last.workoutDay.name }
       : null,
-    monthCount,
-    weekCount,
+    monthCount: distinctDayCount(dates, startOfMonth(now), endOfMonth(now)),
+    weekCount: distinctDayCount(dates, weekStart(now)),
     totalSessions,
-    streak: computeStreak(streakDates.map((s) => s.sessionDate), weeklyGoal),
+    streak: computeStreak(dates, weeklyGoal),
     recent: recentRaw.map((s) => ({
       id: s.id,
       date: s.sessionDate,
@@ -132,43 +126,38 @@ export async function getFriendSummary(
   friendWeeklyGoal: number,
 ): Promise<FriendSummary> {
   const now = new Date();
-  const [weekCount, monthCount, last, streakDates, bw, heaviestSet] =
-    await Promise.all([
-      db.workoutSession.count({
-        where: { userId: friendId, sessionDate: { gte: weekStart(now) } },
-      }),
-      db.workoutSession.count({
-        where: { userId: friendId, sessionDate: { gte: startOfMonth(now), lte: endOfMonth(now) } },
-      }),
-      db.workoutSession.findFirst({
-        where: { userId: friendId },
-        orderBy: { sessionDate: "desc" },
-        select: { sessionDate: true },
-      }),
-      db.workoutSession.findMany({
-        where: { userId: friendId, sessionDate: { gte: subDays(now, 60) } },
-        select: { sessionDate: true },
-      }),
-      db.bodyweightLog.findFirst({
-        where: { userId: friendId },
-        orderBy: { loggedAt: "desc" },
-        select: { weightKg: true },
-      }),
-      db.exerciseSet.findFirst({
-        where: {
-          weight: { gt: 0 },
-          exerciseLog: { workoutSession: { userId: friendId } },
-        },
-        orderBy: [{ weight: "desc" }, { reps: "desc" }],
-        include: { exerciseLog: { include: { exercise: { select: { name: true } } } } },
-      }),
-    ]);
+  const [last, dateRows, bw, heaviestSet] = await Promise.all([
+    db.workoutSession.findFirst({
+      where: { userId: friendId },
+      orderBy: { sessionDate: "desc" },
+      select: { sessionDate: true },
+    }),
+    db.workoutSession.findMany({
+      where: { userId: friendId, sessionDate: { gte: subDays(now, 60) } },
+      select: { sessionDate: true },
+    }),
+    db.bodyweightLog.findFirst({
+      where: { userId: friendId },
+      orderBy: { loggedAt: "desc" },
+      select: { weightKg: true },
+    }),
+    db.exerciseSet.findFirst({
+      where: {
+        weight: { gt: 0 },
+        exerciseLog: { workoutSession: { userId: friendId } },
+      },
+      orderBy: [{ weight: "desc" }, { reps: "desc" }],
+      include: { exerciseLog: { include: { exercise: { select: { name: true } } } } },
+    }),
+  ]);
+
+  const dates = dateRows.map((s) => s.sessionDate);
 
   return {
     name: friendName,
-    streak: computeStreak(streakDates.map((s) => s.sessionDate), friendWeeklyGoal),
-    weekCount,
-    monthCount,
+    streak: computeStreak(dates, friendWeeklyGoal),
+    weekCount: distinctDayCount(dates, weekStart(now)),
+    monthCount: distinctDayCount(dates, startOfMonth(now), endOfMonth(now)),
     lastWorkout: last?.sessionDate ?? null,
     bodyweightKg: bw?.weightKg ?? null,
     heaviest: heaviestSet
