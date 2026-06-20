@@ -1,4 +1,5 @@
-import { format, formatDistanceToNowStrict, isToday, isYesterday } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
+import { formatIST, istDayKey } from "./tz";
 
 /** Format a weight in kg, trimming trailing ".0" (e.g. 62.5kg, 60kg). */
 export function kg(weight: number): string {
@@ -16,18 +17,20 @@ export function setsSummary(sets: { reps: number; weight: number }[]): string {
   return `${sets.length} × ${repPart} @ ${kg(topWeight)}`;
 }
 
-/** Friendly date: Today / Yesterday / "Mon, 12 Jun". */
+/** Friendly date in IST: Today / Yesterday / "Mon, 12 Jun". */
 export function friendlyDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  if (isToday(d)) return "Today";
-  if (isYesterday(d)) return "Yesterday";
-  return format(d, "EEE, d MMM");
+  const key = istDayKey(d);
+  const today = istDayKey(new Date());
+  const yesterday = istDayKey(new Date(Date.now() - 86_400_000));
+  if (key === today) return "Today";
+  if (key === yesterday) return "Yesterday";
+  return formatIST(d, "EEE, d MMM");
 }
 
-/** Short date for tight spots: "12 Jun". */
+/** Short date for tight spots: "12 Jun" (IST). */
 export function shortDate(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return format(d, "d MMM");
+  return formatIST(date, "d MMM");
 }
 
 /** "3 days ago" relative time. */

@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { format } from "date-fns";
 import { HeartPulse, StickyNote } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +7,7 @@ import { SessionActions } from "@/components/history/session-actions";
 import { getSessionDetail } from "@/lib/queries/history";
 import { requireUser } from "@/lib/auth";
 import { duration, kg, km, setsSummary } from "@/lib/format";
+import { formatIST } from "@/lib/tz";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,7 @@ export default async function SessionDetailPage({
     <div className="space-y-4">
       <PageHeader
         title={session.workoutDay.name}
-        subtitle={format(session.sessionDate, "EEEE, d MMM yyyy")}
+        subtitle={formatIST(session.sessionDate, "EEEE, d MMM yyyy")}
         backHref="/history"
       />
 

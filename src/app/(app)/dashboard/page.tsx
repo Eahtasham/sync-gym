@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { format } from "date-fns";
 import {
   CalendarDays,
   CheckCircle2,
@@ -23,6 +22,7 @@ import { getPersonalRecords } from "@/lib/queries/records";
 import { getWorkoutDays } from "@/lib/queries/workouts";
 import { getLatestBodyweight } from "@/lib/queries/bodyweight";
 import { duration, friendlyDate, kg, km } from "@/lib/format";
+import { formatIST } from "@/lib/tz";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +50,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <header className="space-y-1">
         <p className="text-sm text-muted-foreground">
-          {format(new Date(), "EEEE, d MMM")} · Hi {user.name}
+          {formatIST(new Date(), "EEEE, d MMM")} · Hi {user.name}
         </p>
         <h1 className="text-3xl font-bold tracking-tight">
           {data.todayDone ? "Nice work today 💪" : "Ready to train?"}

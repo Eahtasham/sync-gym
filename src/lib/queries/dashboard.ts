@@ -1,13 +1,12 @@
-import {
-  endOfDay,
-  endOfMonth,
-  startOfDay,
-  startOfMonth,
-  startOfWeek,
-  subDays,
-} from "date-fns";
+import { subDays } from "date-fns";
 import { db } from "@/lib/db";
 import { computeStreak, distinctDayCount } from "@/lib/streak";
+import {
+  istEndOfMonth,
+  istStartOfMonth,
+  istStartOfToday,
+  istStartOfWeek,
+} from "@/lib/tz";
 
 export type DashboardData = {
   todayDone: boolean;
@@ -25,8 +24,6 @@ export type DashboardData = {
   }[];
   progression: { exerciseName: string; from: number; to: number }[];
 };
-
-const weekStart = (d: Date) => startOfWeek(d, { weekStartsOn: 1 });
 
 export async function getDashboardData(
   userId: string,
@@ -62,12 +59,12 @@ export async function getDashboardData(
   const dates = recentDateRows.map((s) => s.sessionDate);
 
   return {
-    todayDone: distinctDayCount(dates, startOfDay(now), endOfDay(now)) > 0,
+    todayDone: distinctDayCount(dates, istStartOfToday(now)) > 0,
     lastWorkout: last
       ? { date: last.sessionDate, dayName: last.workoutDay.name }
       : null,
-    monthCount: distinctDayCount(dates, startOfMonth(now), endOfMonth(now)),
-    weekCount: distinctDayCount(dates, weekStart(now)),
+    monthCount: distinctDayCount(dates, istStartOfMonth(now), istEndOfMonth(now)),
+    weekCount: distinctDayCount(dates, istStartOfWeek(now)),
     totalSessions,
     streak: computeStreak(dates, weeklyGoal),
     recent: recentRaw.map((s) => ({
@@ -156,8 +153,8 @@ export async function getFriendSummary(
   return {
     name: friendName,
     streak: computeStreak(dates, friendWeeklyGoal),
-    weekCount: distinctDayCount(dates, weekStart(now)),
-    monthCount: distinctDayCount(dates, startOfMonth(now), endOfMonth(now)),
+    weekCount: distinctDayCount(dates, istStartOfWeek(now)),
+    monthCount: distinctDayCount(dates, istStartOfMonth(now), istEndOfMonth(now)),
     lastWorkout: last?.sessionDate ?? null,
     bodyweightKg: bw?.weightKg ?? null,
     heaviest: heaviestSet
